@@ -70,6 +70,19 @@ the necessary modules for a West based [Zephyr workspace application][1].
     app-path: app
     toolchains: arm-zephyr-eabi:riscv64-zephyr-elf
     sdk-version: 0.16.3
+    sdk-install-dir: /opt/zephyr-sdk-0.16.3
+    toolchain-variant: zephyr
+
+### Override Zephyr repository source
+
+```yaml
+- name: Setup Zephyr project
+  uses: zephyrproject-rtos/action-zephyr-setup@v1
+  with:
+    app-path: app
+    toolchains: arm-zephyr-eabi
+    zephyr-repo-url: https://github.com/AmbiqMicro/zephyr-ambiq-internal
+```
 ```
 
 ## Specify a custom west workspace manifest file name

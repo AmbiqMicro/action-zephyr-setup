@@ -50,6 +50,13 @@ inputs:
     required: false
     default: auto
 
+  sdk-install-dir:
+    description: |
+      Final installation directory for the Zephyr SDK. When left empty the
+      action installs to /opt/zephyr-sdk-{sdk-version}.
+    required: false
+    default: ""
+
   sdk-base:
     description: Base URL of the Zephyr SDK
     required: false
@@ -59,6 +66,11 @@ inputs:
     description: List of toolchains to install, colon separated
     required: false
     default: arm-zephyr-eabi
+
+  toolchain-variant:
+    description: Value exported to ZEPHYR_TOOLCHAIN_VARIANT
+    required: false
+    default: zephyr
 
   west-project-filter:
     description: West project filter
@@ -72,6 +84,11 @@ inputs:
 
   west-version:
     description: West version to install, latest if omitted
+    required: false
+    default: ""
+
+  zephyr-repo-url:
+    description: Override URL to clone the Zephyr project from
     required: false
     default: ""
 
@@ -161,10 +178,17 @@ runs:
         fi
 
         if [ "${{ inputs.sdk-version }}" = "auto" ]; then
-          zephyr_path="zephyr"
-          if west list -f '{abspath}' zephyr; then
-            zephyr_path="$( west list -f '{abspath}' zephyr )"
-          fi
+        zephyr_path="zephyr"
+        if west list -f '{abspath}' zephyr >/dev/null 2>&1; then
+          zephyr_path="$( west list -f '{abspath}' zephyr )"
+        fi
+
+        zephyr_override="${{ inputs.zephyr-repo-url }}"
+        if [ -n "${zephyr_override}" ]; then
+          echo "Overriding Zephyr project with ${zephyr_override}"
+          rm -rf "${zephyr_path}"
+          git clone --depth 1 "${zephyr_override}" "${zephyr_path}"
+        fi
 
           if [ -f "${zephyr_path}/SDK_VERSION" ]; then
             echo "Reading SDK version from ${zephyr_path}/SDK_VERSION"
@@ -253,3 +277,35 @@ runs:
         ccache -M ${{ inputs.ccache-max-size }}
         ccache -p
         ccache -z -s -vv
+
+    - name: Configure Zephyr SDK location
+      if: runner.os == 'Linux'
+      working-directory: ${{ inputs.base-path }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        sdk_version="${SDK_VERSION}"
+        sdk_src="${PWD}/zephyr-sdk"
+        if [ ! -d "${sdk_src}" ]; then
+          echo "Zephyr SDK directory not found: ${sdk_src}" >&2
+          exit 1
+        fi
+
+        final_dir="${{ inputs.sdk-install-dir }}"
+        if [ -z "${final_dir}" ]; then
+          final_dir="/opt/zephyr-sdk-${sdk_version}"
+        fi
+        final_dir="$(echo "${final_dir}" | sed "s/{sdk-version}/${sdk_version}/g")"
+
+        sudo mkdir -p "$(dirname "${final_dir}")"
+        sudo rm -rf "${final_dir}"
+        sudo mv "${sdk_src}" "${final_dir}"
+        sudo chown -R "${USER}:${USER}" "${final_dir}"
+
+        echo "ZEPHYR_SDK_INSTALL_DIR=${final_dir}" >> "$GITHUB_ENV"
+        echo "ZEPHYR_TOOLCHAIN_VARIANT=${{ inputs.toolchain-variant }}" >> "$GITHUB_ENV"
+
+        host_triplet="$(find "${final_dir}/sysroots" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | head -n1 || true)"
+        if [ -n "${host_triplet}" ]; then
+          echo "${final_dir}/sysroots/${host_triplet}/usr/bin" >> "$GITHUB_PATH"
+        fi
